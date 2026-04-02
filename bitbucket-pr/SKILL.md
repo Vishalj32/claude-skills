@@ -12,16 +12,105 @@ description: >
 # Bitbucket PR Skill
 
 Creates a Bitbucket pull request from the current local git repo using the REST API v2.
-Auth is via SSH (for git operations) and a `.bitbucket.json` config file for API credentials.
+
+**Credential safety**: credentials are NEVER read into the model's context. A local helper
+script handles all authentication internally. Claude only passes non-sensitive parameters
+(branch names, title, description) to that script.
 
 ---
 
-## Step 0 — Load config
+## Step 0 — Ensure helper script exists
 
-Look for `.bitbucket.json` in the repo root (or `~/.bitbucket.json` as fallback).
+Check whether `~/.local/bin/bitbucket-create-pr` exists:
 
-Expected shape:
-```json
+```bash
+test -f ~/.local/bin/bitbucket-create-pr && echo "exists" || echo "missing"
+```
+
+If **missing**, create it:
+
+```bash
+mkdir -p ~/.local/bin
+cat > ~/.local/bin/bitbucket-create-pr << 'SCRIPT'
+#!/usr/bin/env bash
+# bitbucket-create-pr — called by the bitbucket-pr Claude skill.
+# Credentials are read from the config file here, inside this script,
+# so they are NEVER exposed to the model's context.
+#
+# Usage: bitbucket-create-pr <source-branch> <dest-branch> <title> <description>
+
+set -euo pipefail
+
+SOURCE_BRANCH="${1:?source branch required}"
+DEST_BRANCH="${2:?dest branch required}"
+TITLE="${3:?title required}"
+DESCRIPTION="${4:?description required}"
+
+CONFIG="${BITBUCKET_CONFIG:-$HOME/.bitbucket.json}"
+
+if [[ ! -f "$CONFIG" ]]; then
+  echo "ERROR: config file not found at $CONFIG" >&2
+  echo "Create it with: {\"username\":\"…\",\"app_password\":\"…\",\"workspace\":\"…\",\"repo_slug\":\"…\"}" >&2
+  exit 1
+fi
+
+if ! command -v jq &>/dev/null; then
+  echo "ERROR: jq is required. Install with: brew install jq" >&2
+  exit 1
+fi
+
+USERNAME=$(jq -r '.username'     "$CONFIG")
+PASSWORD=$(jq -r '.app_password' "$CONFIG")
+WORKSPACE=$(jq -r '.workspace'   "$CONFIG")
+REPO_SLUG=$(jq -r '.repo_slug'   "$CONFIG")
+
+PAYLOAD=$(jq -n \
+  --arg title  "$TITLE" \
+  --arg desc   "$DESCRIPTION" \
+  --arg src    "$SOURCE_BRANCH" \
+  --arg dst    "$DEST_BRANCH" \
+  '{
+    title: $title,
+    description: $desc,
+    source: { branch: { name: $src } },
+    destination: { branch: { name: $dst } },
+    close_source_branch: false
+  }')
+
+RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+  -u "${USERNAME}:${PASSWORD}" \
+  -H "Content-Type: application/json" \
+  "https://api.bitbucket.org/2.0/repositories/${WORKSPACE}/${REPO_SLUG}/pullrequests" \
+  -d "$PAYLOAD")
+
+HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+BODY=$(echo "$RESPONSE" | head -n -1)
+
+if [[ "$HTTP_CODE" == "201" ]]; then
+  PR_URL=$(echo "$BODY" | jq -r '.links.html.href')
+  echo "PR created: $PR_URL"
+else
+  echo "ERROR: HTTP $HTTP_CODE" >&2
+  echo "$BODY" | jq '.' 2>/dev/null || echo "$BODY" >&2
+  exit 1
+fi
+SCRIPT
+
+chmod +x ~/.local/bin/bitbucket-create-pr
+echo "Helper script created."
+```
+
+Then check whether the config file exists (do NOT read its contents — only check presence):
+
+```bash
+test -f "${BITBUCKET_CONFIG:-$HOME/.bitbucket.json}" && echo "config found" || echo "config missing"
+```
+
+If **config missing**, show the user this template and ask them to fill it in. Do NOT ask them to paste the values into the chat — they should edit the file directly.
+
+```
+~/.bitbucket.json
+─────────────────
 {
   "username": "your-bitbucket-username",
   "app_password": "your-app-password",
@@ -30,9 +119,9 @@ Expected shape:
 }
 ```
 
-> **If the file is missing**, tell the user and show the template above. Ask them to create it.
-> The `app_password` must have **Repositories: Read + Write** scope in Bitbucket settings.
-> SSH is used only for the local git remote — the REST API uses the app password.
+> The `app_password` needs **Repositories: Read + Write** scope.
+> Add `~/.bitbucket.json` to `~/.gitignore_global` (or the repo's `.gitignore`) to avoid committing it.
+> Set `BITBUCKET_CONFIG=/path/to/other.json` to use a different config file.
 
 ---
 
@@ -51,23 +140,23 @@ git log origin/develop..HEAD --oneline
 git diff origin/develop...HEAD
 ```
 
-- **Source branch**: whatever `HEAD` resolves to. Abort if it's `develop`, `main`, or `master` — the user should not PR from the default branch.
-- **Destination branch**: default is `develop`. If the user specifies another target, use that.
-- If there are **no commits ahead**, warn the user and stop — there's nothing to PR.
+- **Source branch**: whatever `HEAD` resolves to. Abort if it's `develop`, `main`, or `master`.
+- **Destination branch**: default is `develop`. Use what the user specifies if given.
+- If there are **no commits ahead**, warn the user and stop.
 
 ---
 
 ## Step 2 — Generate title and description
 
 **Title** — from commit messages:
-- If there's one commit: use its subject line directly.
-- If there are multiple commits: ask Claude to write a single concise sentence (≤72 chars) summarising what the commits collectively achieve. Do NOT just list them.
+- One commit: use its subject line directly.
+- Multiple commits: write a single concise sentence (≤72 chars) summarising what they collectively achieve.
 
 **Description** — from the diff:
-Ask Claude to write a clear markdown description covering:
-1. **What changed** — a plain-English summary of the diff (2–5 sentences)
+Write a clear markdown description covering:
+1. **What changed** — plain-English summary (2–5 sentences)
 2. **Why** — infer from commit messages if possible
-3. **Testing notes** — brief placeholder if not obvious from context
+3. **Testing notes** — brief placeholder if not obvious
 
 Keep the description under ~300 words.
 
@@ -75,10 +164,10 @@ Keep the description under ~300 words.
 
 ## Step 3 — Confirm with user
 
-Before creating the PR, display a summary for the user to review:
+Display a summary for review before creating the PR:
 
 ```
-📦 Ready to create PR
+Ready to create PR
 
   From : feature/my-branch
   Into : develop
@@ -90,7 +179,7 @@ Before creating the PR, display a summary for the user to review:
 Proceed? (yes / edit title / edit description / cancel)
 ```
 
-Wait for confirmation. If the user wants edits, apply them and confirm again.
+Wait for confirmation. Apply edits and confirm again if requested.
 
 ---
 
@@ -102,7 +191,7 @@ Check if the source branch has a remote tracking branch:
 git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null
 ```
 
-If there's no upstream, push it:
+If no upstream, push it:
 
 ```bash
 git push -u origin <source-branch>
@@ -110,24 +199,21 @@ git push -u origin <source-branch>
 
 ---
 
-## Step 5 — Create the PR via REST API
+## Step 5 — Create the PR
+
+Call the helper script with only non-sensitive parameters. Credentials are read inside
+the script and never appear in this command or the model's context.
 
 ```bash
-curl -s -X POST \
-  -u "<username>:<app_password>" \
-  -H "Content-Type: application/json" \
-  "https://api.bitbucket.org/2.0/repositories/<workspace>/<repo_slug>/pullrequests" \
-  -d '{
-    "title": "<title>",
-    "description": "<description>",
-    "source": { "branch": { "name": "<source-branch>" } },
-    "destination": { "branch": { "name": "<destination-branch>" } },
-    "close_source_branch": false
-  }'
+~/.local/bin/bitbucket-create-pr \
+  "<source-branch>" \
+  "<destination-branch>" \
+  "<title>" \
+  "<description>"
 ```
 
-- On **HTTP 201**: extract and display the PR URL from `response.links.html.href`. Done ✅
-- On **HTTP 4xx/5xx**: show the error body and suggest fixes (see Troubleshooting below).
+- On success: display the PR URL from the script's output. Done.
+- On error: show the error output and suggest fixes (see Troubleshooting).
 
 ---
 
@@ -135,16 +221,19 @@ curl -s -X POST \
 
 | Error | Likely cause | Fix |
 |---|---|---|
-| 401 Unauthorized | Wrong app_password or username | Check `.bitbucket.json`; regenerate app password |
-| 404 Not Found | Wrong workspace/repo slug | Check slugs match Bitbucket URL |
-| 400 Bad Request – source branch not found | Branch not pushed | Step 4 should handle this; re-push manually |
-| 400 – PR already exists | Duplicate PR | Link to the existing PR if returned in error |
-| No commits ahead | Branch not diverged from destination | Make commits first, or check you're on the right branch |
+| `config file not found` | Config missing | Create `~/.bitbucket.json` as shown in Step 0 |
+| `jq is required` | jq not installed | Run `brew install jq` |
+| HTTP 401 Unauthorized | Wrong credentials | Edit `~/.bitbucket.json`; regenerate app password |
+| HTTP 404 Not Found | Wrong workspace/repo slug | Check slugs match Bitbucket URL |
+| HTTP 400 – source branch not found | Branch not pushed | Step 4 should handle this; re-push manually |
+| HTTP 400 – PR already exists | Duplicate PR | Check Bitbucket for an open PR on this branch |
+| No commits ahead | Branch not diverged | Make commits first, or verify you're on the right branch |
 
 ---
 
 ## Notes
 
-- This skill uses **Bitbucket Cloud** REST API v2. It does **not** support Bitbucket Server/Data Center (different API base URL and auth).
-- SSH is used by git for push; the REST API always uses the app password from config.
-- `close_source_branch` defaults to `false` — adjust if the user prefers auto-deletion after merge.
+- This skill uses **Bitbucket Cloud** REST API v2. It does **not** support Bitbucket Server/Data Center.
+- SSH is used by git for push; the REST API uses the app password from the config file.
+- `close_source_branch` defaults to `false` — edit the helper script to change this.
+- To use a non-default config location: `export BITBUCKET_CONFIG=/path/to/config.json`
