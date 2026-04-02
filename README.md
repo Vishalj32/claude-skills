@@ -1,36 +1,43 @@
 # claude-skills
 
-A collection of Claude Code skills for common development workflows.
+A curated collection of [Claude Code](https://claude.ai/code) skills for common development workflows — extending Claude's capabilities with reusable, prompt-driven task automation.
 
 ## What are skills?
 
-Skills are prompt-driven extensions for [Claude Code](https://claude.ai/code) that teach Claude how to perform specific tasks. Each skill is a `SKILL.md` file with a YAML frontmatter block (name, description, trigger conditions) followed by step-by-step instructions Claude follows when the skill is invoked.
+Skills are structured instruction sets that teach Claude how to perform specific multi-step tasks. Each skill is a `SKILL.md` file with:
 
-Invoke a skill with `/skill-name` or by describing what you want — Claude matches your intent to the right skill automatically.
+- **YAML frontmatter** — name, description, and trigger conditions used for automatic matching
+- **Step-by-step instructions** — a precise workflow Claude follows when the skill is invoked
 
-## Skills
+Invoke a skill with `/skill-name` or describe what you want in plain language — Claude matches your intent to the right skill automatically.
+
+## Available skills
 
 | Skill | Description |
 |---|---|
-| [bitbucket-pr](./bitbucket-pr/) | Create Bitbucket Cloud pull requests from your local git repo |
+| [bitbucket-pr](./bitbucket-pr/) | Create Bitbucket Cloud pull requests from your local git repo — with credential-safe authentication and auto-generated PR titles and descriptions |
 
 ## Installation
 
-### Install a single skill
+### Via Claude Code CLI
 
 ```bash
 claude skill install <skill-name>
 ```
 
-### Install from this repo manually
+### Manually
 
-Copy the skill directory into `~/.claude/skills/`:
+Copy a skill directory into `~/.claude/skills/`:
 
 ```bash
 cp -r bitbucket-pr ~/.claude/skills/
 ```
 
+Claude Code picks up skills from `~/.claude/skills/` automatically — no restart required.
+
 ## Contributing
+
+### Skill structure
 
 Each skill lives in its own directory:
 
@@ -47,7 +54,8 @@ Each skill lives in its own directory:
 name: my-skill
 description: >
   One or more sentences describing when to trigger this skill.
-  Include natural-language phrasings a user might say.
+  Write these as natural-language phrasings a user might say —
+  this field is used for automatic trigger matching.
 ---
 
 # My Skill
@@ -55,8 +63,13 @@ description: >
 Step-by-step instructions for Claude to follow...
 ```
 
-The `description` field is used for automatic trigger matching — write it as if you're describing the user's intent.
+### Guidelines
+
+- **One directory per skill** — keep skills self-contained and composable
+- **Credential safety** — never let credentials flow through the model; use helper scripts or environment variables
+- **Describe user intent** — the `description` field should read as what a user would say, not what the skill does internally
+- **Include a README** — document setup requirements, usage examples, and any prerequisites
 
 ## License
 
-MIT
+[MIT](./LICENSE)
