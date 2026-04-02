@@ -25,7 +25,7 @@ Invoke `/bitbucket-pr` (or just ask Claude to "create a PR" / "raise a pull requ
 
 ## Setup
 
-Create `~/.bitbucket.json` (or a per-repo `.bitbucket.json`):
+Create `.bitbucket.json` in the **root of each repo** (recommended — different repos have different slugs):
 
 ```json
 {
@@ -36,7 +36,12 @@ Create `~/.bitbucket.json` (or a per-repo `.bitbucket.json`):
 }
 ```
 
-> Add `~/.bitbucket.json` to your global gitignore. It contains credentials.
+The skill resolves config in this order:
+1. `$BITBUCKET_CONFIG` (env var override)
+2. `.bitbucket.json` in the repo root ← **default for per-repo setup**
+3. `~/.bitbucket.json` (global fallback)
+
+> Add `.bitbucket.json` to your repo's `.gitignore` and `~/.gitignore_global`. It contains credentials.
 
 ### Getting an app password
 
@@ -74,7 +79,7 @@ export BITBUCKET_CONFIG=/path/to/other.json
 ## Requirements
 
 - Git repo with a Bitbucket Cloud remote
-- `~/.bitbucket.json` with valid credentials (filled in by you, not Claude)
+- `.bitbucket.json` in the repo root (or `~/.bitbucket.json` as a global fallback), filled in by you — not Claude
 - `jq` installed (`brew install jq`)
 - At least one commit ahead of the destination branch
 - Bitbucket Cloud (not Bitbucket Server/Data Center)

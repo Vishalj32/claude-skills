@@ -46,11 +46,19 @@ DEST_BRANCH="${2:?dest branch required}"
 TITLE="${3:?title required}"
 DESCRIPTION="${4:?description required}"
 
-CONFIG="${BITBUCKET_CONFIG:-$HOME/.bitbucket.json}"
+# Config lookup: explicit env var > repo-local .bitbucket.json > ~/.bitbucket.json
+if [[ -n "${BITBUCKET_CONFIG:-}" ]]; then
+  CONFIG="$BITBUCKET_CONFIG"
+elif [[ -f "$(git rev-parse --show-toplevel 2>/dev/null)/.bitbucket.json" ]]; then
+  CONFIG="$(git rev-parse --show-toplevel)/.bitbucket.json"
+else
+  CONFIG="$HOME/.bitbucket.json"
+fi
 
 if [[ ! -f "$CONFIG" ]]; then
-  echo "ERROR: config file not found at $CONFIG" >&2
-  echo "Create it with: {\"username\":\"…\",\"app_password\":\"…\",\"workspace\":\"…\",\"repo_slug\":\"…\"}" >&2
+  echo "ERROR: config file not found." >&2
+  echo "Create .bitbucket.json in your repo root (or ~/.bitbucket.json as a fallback):" >&2
+  echo "{\"username\":\"…\",\"app_password\":\"…\",\"workspace\":\"…\",\"repo_slug\":\"…\"}" >&2
   exit 1
 fi
 
@@ -100,17 +108,25 @@ chmod +x ~/.local/bin/bitbucket-create-pr
 echo "Helper script created."
 ```
 
-Then check whether the config file exists (do NOT read its contents — only check presence):
+Then check whether the config file exists (do NOT read its contents — only check presence).
+The script looks for config in this order: `$BITBUCKET_CONFIG` → repo-root `.bitbucket.json` → `~/.bitbucket.json`.
 
 ```bash
-test -f "${BITBUCKET_CONFIG:-$HOME/.bitbucket.json}" && echo "config found" || echo "config missing"
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+if [[ -n "${BITBUCKET_CONFIG:-}" ]]; then
+  test -f "$BITBUCKET_CONFIG" && echo "config found at $BITBUCKET_CONFIG" || echo "config missing"
+elif [[ -n "$REPO_ROOT" ]] && test -f "$REPO_ROOT/.bitbucket.json"; then
+  echo "config found at $REPO_ROOT/.bitbucket.json"
+else
+  test -f "$HOME/.bitbucket.json" && echo "config found at ~/.bitbucket.json" || echo "config missing"
+fi
 ```
 
 If **config missing**, show the user this template and ask them to fill it in. Do NOT ask them to paste the values into the chat — they should edit the file directly.
 
 ```
-~/.bitbucket.json
-─────────────────
+<repo-root>/.bitbucket.json   ← preferred: one file per repo
+──────────────────────────────
 {
   "username": "your-bitbucket-username",
   "app_password": "your-app-password",
@@ -120,8 +136,8 @@ If **config missing**, show the user this template and ask them to fill it in. D
 ```
 
 > The `app_password` needs **Repositories: Read + Write** scope.
-> Add `~/.bitbucket.json` to `~/.gitignore_global` (or the repo's `.gitignore`) to avoid committing it.
-> Set `BITBUCKET_CONFIG=/path/to/other.json` to use a different config file.
+> Add `.bitbucket.json` to the repo's `.gitignore` (and `~/.gitignore_global`) to avoid committing it.
+> Set `BITBUCKET_CONFIG=/path/to/other.json` to override the lookup entirely.
 
 ---
 
