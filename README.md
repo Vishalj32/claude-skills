@@ -43,8 +43,9 @@ Each skill lives in its own directory:
 
 ```
 <skill-name>/
-├── SKILL.md    # The skill definition (required)
-└── README.md   # Human-readable docs (recommended)
+├── SKILL.md        # The skill definition (required)
+├── scripts/        # Helper scripts, e.g. for credential-safe API calls (optional)
+└── README.md       # Human-readable docs (recommended)
 ```
 
 ### SKILL.md format

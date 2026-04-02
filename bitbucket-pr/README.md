@@ -4,24 +4,22 @@ A Claude Code skill that creates Bitbucket Cloud pull requests directly from you
 
 ## Credential safety
 
-Credentials are **never read into the model's context**. On first run, the skill installs a local
-helper script (`~/.local/bin/bitbucket-create-pr`) that reads your config file and makes the API
-call entirely within that script. Claude only passes non-sensitive parameters (branch names, PR
-title, description) to the script — your username and app password are never visible in the
-conversation.
+Credentials are **never read into the model's context**. A bundled Node.js script (`scripts/create-pr.js`)
+reads your config file and makes the API call entirely within that script. Claude only passes
+non-sensitive parameters (branch names, PR title, description) to the script — your username
+and app password are never visible in the conversation.
 
 ## What it does
 
 Invoke `/bitbucket-pr` (or just ask Claude to "create a PR" / "raise a pull request") and the skill will:
 
-1. Install `~/.local/bin/bitbucket-create-pr` if not already present
-2. Verify your config file exists (without reading its contents)
-3. Detect your current branch and compare it against the destination branch
-4. Auto-generate a PR title (from commit messages) and description (from the diff)
-5. Let you review and edit both before submitting
-6. Push the branch if it hasn't been pushed yet
-7. Call the helper script with non-sensitive params — credentials stay in the script
-8. Return the PR URL
+1. Verify your config file exists (without reading its contents)
+2. Detect your current branch and compare it against the destination branch
+3. Auto-generate a PR title (from commit messages) and description (from the diff)
+4. Let you review and edit both before submitting
+5. Push the branch if it hasn't been pushed yet
+6. Call the bundled `scripts/create-pr.js` with non-sensitive params — credentials stay in the script
+7. Return the PR URL
 
 ## Setup
 
@@ -80,7 +78,7 @@ export BITBUCKET_CONFIG=/path/to/other.json
 
 - Git repo with a Bitbucket Cloud remote
 - `.bitbucket.json` in the repo root (or `~/.bitbucket.json` as a global fallback), filled in by you — not Claude
-- `jq` installed (`brew install jq`)
+- Node.js installed (`brew install node`)
 - At least one commit ahead of the destination branch
 - Bitbucket Cloud (not Bitbucket Server/Data Center)
 
@@ -92,4 +90,4 @@ Install via Claude Code:
 claude skill install bitbucket-pr
 ```
 
-Or copy `SKILL.md` into your `~/.claude/skills/bitbucket-pr/` directory.
+Or copy the `bitbucket-pr/` directory (including `SKILL.md` and `scripts/`) into `~/.claude/skills/`.
